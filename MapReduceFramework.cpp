@@ -125,8 +125,8 @@ void waitForJob(JobHandle job) {
         for (auto &t: jobContext->threadsVec) {
             t.join();
         }
+        jobContext->joined = true;
     }
-    jobContext->joined = true;
 }
 
 void closeJobHandle(JobHandle job) {
