@@ -23,6 +23,7 @@ struct JobContext {
     std::mutex stateMutex; //for JobState - if we have time we can do it more efficient
     std::mutex shuffleMutex; // In reduce after shuffle
     Barrier* sortBarrier; //for sort
+    
     std::atomic<int> mapAtomicIndex; // for map phase distribution
     std::atomic<size_t> shuffledPairsCounter; // for progress tracking in shuffle/reduce
     std::atomic<size_t> intermediatePairsCounter; // for progress tracking in shuffle/reduce
@@ -100,24 +101,103 @@ void emit3 (K3* key, V3* value, void* context) {
 
 //TODO: nir's part
 void workerFunction(ThreadContext* threadContext) {
-    //Map phase
     JobContext* jobContext = threadContext->jobContext;
+
+    // --------------------------- MAP PHASE ---------------------------
+    if (threadContext->threadID == 0) {
+        std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+        jobContext->state.stage = MAP_STAGE;
+    }
+
     int index = jobContext->mapAtomicIndex.fetch_add(1);
     while (index < jobContext->inputVec.size()) {
         auto& pair = jobContext->inputVec[index];
         jobContext->mapReduceClientRef.map(pair.first, pair.second, threadContext);
         index = jobContext->mapAtomicIndex.fetch_add(1);
+
+        // עדכון אחוזים בשלב MAP
+        {
+            std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+            jobContext->state.percentage = 
+                (float)jobContext->intermediatePairsCounter.load() / jobContext->inputVec.size();
+        }
     }
 
-    //Sort phase - by key
+    // --------------------------- SORT PHASE ---------------------------
     std::sort(
-            threadContext->intermediateResults.begin(),
-            threadContext->intermediateResults.end(),
-            [](const IntermediatePair& result1, const IntermediatePair& result2) {
-                return *(result1.first) < *(result2.first);
-            }
+        threadContext->intermediateResults.begin(),
+        threadContext->intermediateResults.end(),
+        [](const IntermediatePair& a, const IntermediatePair& b) {
+            return *(a.first) < *(b.first);
+        }
     );
-}
+
+    // ------------------------ BARRIER #1 (before shuffle) ------------------------
+    jobContext->sortBarrier->barrier();
+
+    // --------------------------- SHUFFLE PHASE (only thread 0) ---------------------------
+    if (threadContext->threadID == 0) {
+        {
+            std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+            jobContext->state.stage = SHUFFLE_STAGE;
+            jobContext->state.percentage = 0;
+        }
+
+        std::vector<IntermediatePair> allPairs;
+        for (auto& ctx : jobContext->threadContextsVec) {
+            allPairs.insert(allPairs.end(), ctx.intermediateResults.begin(), ctx.intermediateResults.end());
+        }
+
+        std::sort(allPairs.begin(), allPairs.end(), [](const IntermediatePair& a, const IntermediatePair& b) {
+            return *(a.first) < *(b.first);
+        });
+
+        size_t total = allPairs.size();
+        size_t processed = 0;
+        for (size_t i = 0; i < total;) {
+            K2* currentKey = allPairs[i].first;
+            IntermediateVec group;
+            while (i < total && !(*currentKey < *(allPairs[i].first)) && !(*(allPairs[i].first) < *currentKey)) {
+                group.push_back(allPairs[i]);
+                ++i;
+            }
+            jobContext->shuffledVectorsQueue.push_back(group);
+
+            // עדכון אחוזים בשלב SHUFFLE
+            processed += group.size();
+            {
+                std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+                jobContext->state.percentage = (float)processed / total;
+            }
+        }
+    }
+
+    // ------------------------ BARRIER #2 (before reduce) ------------------------
+    jobContext->sortBarrier->barrier();
+
+    // --------------------------- REDUCE PHASE ---------------------------
+    {
+        std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+        jobContext->state.stage = REDUCE_STAGE;
+        jobContext->state.percentage = 0;
+    }
+
+    static std::atomic<int> reduceIndex(0);
+    int i = reduceIndex.fetch_add(1);
+    while (i < (int)jobContext->shuffledVectorsQueue.size()) {
+        jobContext->mapReduceClientRef.reduce(&jobContext->shuffledVectorsQueue[i], threadContext);
+        i = reduceIndex.fetch_add(1);
+
+        // עדכון אחוזים בשלב REDUCE
+        {
+            std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+            jobContext->state.percentage = 
+                (float)reduceIndex.load() / jobContext->shuffledVectorsQueue.size();
+        }
+    }
+} 
+
+
 
 void waitForJob(JobHandle job) {
     auto* jobContext = static_cast<JobContext*>(job);
