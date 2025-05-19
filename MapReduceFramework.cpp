@@ -114,7 +114,7 @@ void workerFunction(ThreadContext* threadContext) {
         jobContext->shuffledPairsCounter = 0;
     }
 
-    int index = jobContext->mapAtomicIndex.fetch_add(1);
+    size_t index = jobContext->mapAtomicIndex.fetch_add(1);
     while (index < jobContext->inputVec.size()) {
         auto& pair = jobContext->inputVec[index];
         jobContext->mapReduceClientRef.map(pair.first, pair.second, threadContext);
