@@ -25,6 +25,7 @@ struct JobContext {
     Barrier* sortBarrier; //for sort
     
     std::atomic<int> mapAtomicIndex; // for map phase distribution
+    std::atomic<int> reduceIndex; // for reduce phase distribution
     std::atomic<size_t> shuffledPairsCounter; // for progress tracking in shuffle/reduce
     std::atomic<size_t> intermediatePairsCounter; // for progress tracking in shuffle/reduce
     std::vector<IntermediateVec> shuffledVectorsQueue; // the reduce queue
@@ -40,6 +41,7 @@ struct JobContext {
               multiThreadLevel(multiThreadLevel),
               sortBarrier(nullptr),
               mapAtomicIndex(0),
+              reduceIndex(0),
               shuffledPairsCounter(0),
               intermediatePairsCounter(0),
               joined(false)
@@ -107,6 +109,9 @@ void workerFunction(ThreadContext* threadContext) {
     if (threadContext->threadID == 0) {
         std::lock_guard<std::mutex> lock(jobContext->stateMutex);
         jobContext->state.stage = MAP_STAGE;
+        jobContext->mapAtomicIndex = 0;
+        jobContext->intermediatePairsCounter = 0;
+        jobContext->shuffledPairsCounter = 0;
     }
 
     int index = jobContext->mapAtomicIndex.fetch_add(1);
@@ -176,26 +181,36 @@ void workerFunction(ThreadContext* threadContext) {
     jobContext->sortBarrier->barrier();
 
     // --------------------------- REDUCE PHASE ---------------------------
-    {
-        std::lock_guard<std::mutex> lock(jobContext->stateMutex);
-        jobContext->state.stage = REDUCE_STAGE;
-        jobContext->state.percentage = 0;
+    if (jobContext->shuffledVectorsQueue.empty()) {
+        return;
     }
 
-    static std::atomic<int> reduceIndex(0);
-    int i = reduceIndex.fetch_add(1);
+    if (threadContext->threadID == 0) {
+        jobContext->reduceIndex = 0;
+        {
+            std::lock_guard<std::mutex> lock(jobContext->stateMutex);
+            jobContext->state.stage = REDUCE_STAGE;
+            jobContext->state.percentage = 0;
+        }
+    }
+
+    // optional barrier to ensure reduceIndex reset is visible
+    jobContext->sortBarrier->barrier();
+
+    int i = jobContext->reduceIndex.fetch_add(1);
     while (i < (int)jobContext->shuffledVectorsQueue.size()) {
         jobContext->mapReduceClientRef.reduce(&jobContext->shuffledVectorsQueue[i], threadContext);
-        i = reduceIndex.fetch_add(1);
+        i = jobContext->reduceIndex.fetch_add(1);
 
         // עדכון אחוזים בשלב REDUCE
         {
             std::lock_guard<std::mutex> lock(jobContext->stateMutex);
             jobContext->state.percentage = 
-                (float)reduceIndex.load() / jobContext->shuffledVectorsQueue.size();
+                (float)jobContext->reduceIndex.load() / jobContext->shuffledVectorsQueue.size();
         }
     }
 } 
+
 
 
 
