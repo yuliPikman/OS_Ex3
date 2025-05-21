@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
         std::srand(l);
         for (int j = 0; j < 100000; ++j) {
             int r = std::rand();
-            // int mod = r % unique_keys;
+            int mod = r % unique_keys;
             in_items_vec[l].push_back({ new elements(r), nullptr });
         }
         contexts[l] = { numOfThreads, in_items_vec[l], out_items_vec[l] };

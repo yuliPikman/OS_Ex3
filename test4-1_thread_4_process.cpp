@@ -73,7 +73,7 @@ int main() {
     // sort & print & cleanup
     for (unsigned m = 0; m < numOfProcess; ++m) {
         auto &out = contexts[m].outputVec;
-        std::sort(out.begin(), out.end(), [](const OutputPair &a, const OutputPair &b){ return *a.first < *b.first; });
+        std::sort(out.begin(), out.end(), [](auto &a, const auto &b){ return *a.first < *b.first; });
         for (auto &p : out) {
             std::cout << "thread " << m+1 << " out:\t" << static_cast<elements*>(p.second)->num << '\n';
         }
