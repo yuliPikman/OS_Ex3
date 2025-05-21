@@ -1,8 +1,10 @@
 #include "Barrier.h"
 #include <stdexcept>
 #include <iostream>
+#include <thread>
 
 #define DEBUG_PRINT(x) std::cout << x << std::endl;
+
 
 Barrier::Barrier(int numThreads)
         : numThreads(numThreads), count(0), generation(0) {
@@ -14,6 +16,8 @@ Barrier::Barrier(int numThreads)
 void Barrier::barrier() {
     std::unique_lock<std::mutex> lock(mutex);
     int gen = generation;
+
+    DEBUG_PRINT("Thread reached barrier (generation " << gen << ")")
 
     if (++count == numThreads) {
         generation++;

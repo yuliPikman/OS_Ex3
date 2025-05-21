@@ -1,1 +1,0 @@
-/usr/bin/c++ -rdynamic CMakeFiles/mattanTester.dir/SampleClient.cpp.o -o mattanTester  ../libMapReduceFramework.a ../lib/libgtest_main.a ../lib/libgtest.a 

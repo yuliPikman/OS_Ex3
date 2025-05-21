@@ -110,7 +110,11 @@ void emit3(K3* key, V3* value, void* context) {
 
 
 void updateJobState(JobContext* jobContext, stage_t stage, uint32_t processed, uint32_t total) {
-    jobContext->atomicJobState.store(packState(stage, processed, total));
+    uint64_t packed = packState(stage, processed, total);
+    jobContext->atomicJobState.store(packed);
+
+    DEBUG_PRINT("[updateJobState] Stage: " << stage << ", Progress: " << processed << "/" << total
+                 << " (" << (total == 0 ? 0.0 : 100.0 * (double)processed / total) << "%)")
 }
 
 
@@ -215,32 +219,33 @@ void workerFunction(ThreadContext* threadContext) {
                 updateJobState(jobContext, SHUFFLE_STAGE, (uint32_t)processed, (uint32_t)total);
             }
             DEBUG_PRINT("SHUFFLE stage completed")
+            DEBUG_PRINT("Total reduce groups: " << jobContext->shuffledVectorsQueue.size());
+
         }
 
         jobContext->sortBarrier->barrier();
 
-        if (jobContext->shuffledVectorsQueue.empty()) {
-            DEBUG_PRINT("Thread " << threadContext->threadID << " exiting: nothing to REDUCE")
-            return;
-        }
+        jobContext->sortBarrier->barrier();
 
         if (threadContext->threadID == 0) {
             jobContext->reduceIndex = 0;
-            updateJobState(jobContext, REDUCE_STAGE, 0, (uint32_t)jobContext->shuffledVectorsQueue.size());
             DEBUG_PRINT("REDUCE stage started")
         }
 
         jobContext->sortBarrier->barrier();
 
         int i = jobContext->reduceIndex.fetch_add(1);
-        while (i < (int)jobContext->shuffledVectorsQueue.size()) {
+        uint32_t total = (uint32_t)jobContext->shuffledVectorsQueue.size();
+        while (i < (int)total) {
             jobContext->mapReduceClientRef.reduce(&jobContext->shuffledVectorsQueue[i], threadContext);
-            i = jobContext->reduceIndex.fetch_add(1);
 
-            uint32_t done = (uint32_t)jobContext->reduceIndex.load();
-            uint32_t total = (uint32_t)jobContext->shuffledVectorsQueue.size();
+            // עדכון מדויק יותר של סטטוס לפי מספר שהושלם
+            uint32_t done = (uint32_t)(i + 1);
             updateJobState(jobContext, REDUCE_STAGE, done, total);
+
+            i = jobContext->reduceIndex.fetch_add(1);
         }
+
 
         DEBUG_PRINT("Thread " << threadContext->threadID << " finished REDUCE phase.")
     }
