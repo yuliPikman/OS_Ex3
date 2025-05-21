@@ -15,20 +15,6 @@
 
 struct ThreadContext;
 
-enum Stage : uint8_t {
-    UNDEFINED_STAGE = 0,
-    MAP_STAGE = 1,
-    SHUFFLE_STAGE = 2,
-    REDUCE_STAGE = 3
-};
-
-uint64_t packState(Stage stage, uint32_t processed, uint32_t total) {
-    return ((uint64_t)stage << 62) | ((uint64_t)processed << 31) | total;
-}
-
-void updateJobState(JobContext* jobContext, Stage stage, uint32_t processed, uint32_t total) {
-    jobContext->atomicJobState.store(packState(stage, processed, total));
-}
 
 struct JobContext {
     const MapReduceClient& mapReduceClientRef;
@@ -77,6 +63,16 @@ struct ThreadContext {
               intermediateResults(std::move(intermediateResults)),
               jobContext(jobContext) {}
 };
+
+
+uint64_t packState(Stage stage, uint32_t processed, uint32_t total) {
+    return ((uint64_t)stage << 62) | ((uint64_t)processed << 31) | total;
+}
+
+void updateJobState(JobContext* jobContext, Stage stage, uint32_t processed, uint32_t total) {
+    jobContext->atomicJobState.store(packState(stage, processed, total));
+}
+
 
 JobHandle startMapReduceJob(const MapReduceClient& client,
                             const InputVec& inputVec, OutputVec& outputVec,
