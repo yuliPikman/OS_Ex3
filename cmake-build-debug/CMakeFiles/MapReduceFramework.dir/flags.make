@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/cs/usr/ellorw.nir/os-projects/OS_ex3
 
-CXX_FLAGS = -g -fno-omit-frame-pointer -fsanitize=address -Wall -Wextra -std=gnu++11
+CXX_FLAGS = -Wall -Wextra -std=gnu++11
 

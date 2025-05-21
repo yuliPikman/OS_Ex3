@@ -5,16 +5,12 @@
 
 typedef void* JobHandle;
 
-enum Stage : uint8_t {
-    UNDEFINED_STAGE = 0,
-    MAP_STAGE = 1,
-    SHUFFLE_STAGE = 2,
-    REDUCE_STAGE = 3
-};
+enum stage_t {UNDEFINED_STAGE=0, MAP_STAGE=1, SHUFFLE_STAGE=2, REDUCE_STAGE=3};
+
 
 typedef struct {
-	Stage stage;
-	float percentage;
+    stage_t stage;
+    float percentage;
 } JobState;
 
 void emit2 (K2* key, V2* value, void* context);

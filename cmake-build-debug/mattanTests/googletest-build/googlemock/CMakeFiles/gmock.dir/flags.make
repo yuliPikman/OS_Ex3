@@ -6,5 +6,5 @@ CXX_DEFINES =
 
 CXX_INCLUDES = -I/cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googlemock/include -I/cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googlemock -isystem /cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googletest/include -isystem /cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googletest
 
-CXX_FLAGS = -g -fno-omit-frame-pointer -fsanitize=address -Wall -Wshadow -Wundef -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
+CXX_FLAGS = -Wall -Wshadow -Wundef -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
 

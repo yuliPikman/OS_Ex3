@@ -6,5 +6,5 @@ CXX_DEFINES = -DRANDOM_STRINGS_PATH=\"/cs/usr/ellorw.nir/os-projects/OS_ex3/matt
 
 CXX_INCLUDES = -I/cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googlemock/include -I/cs/usr/ellorw.nir/os-projects/OS_ex3/mattanTests/.. -I/cs/usr/ellorw.nir/os-projects/OS_ex3 -isystem /cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googletest/include -isystem /cs/usr/ellorw.nir/os-projects/OS_ex3/cmake-build-debug/mattanTests/googletest-src/googletest
 
-CXX_FLAGS = -g -fno-omit-frame-pointer -fsanitize=address -Wall -Wextra -std=gnu++17
+CXX_FLAGS = -Wall -Wextra -std=gnu++17
 

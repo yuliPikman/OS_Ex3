@@ -15,7 +15,7 @@
 
 struct ThreadContext;
 
-uint64_t packState(Stage stage, uint32_t processed, uint32_t total) {
+uint64_t packState(stage_t stage, uint32_t processed, uint32_t total) {
     return ((uint64_t)stage << 62) | ((uint64_t)processed << 31) | total;
 }
 
@@ -75,7 +75,7 @@ void getJobState(JobHandle job, JobState* state) {
     auto* jobContext = static_cast<JobContext*>(job);
     uint64_t raw = jobContext->atomicJobState.load();
 
-    Stage stage = static_cast<Stage>(raw >> 62);
+    stage_t stage = static_cast<stage_t>(raw >> 62);
     uint32_t processed = (raw >> 31) & 0x7FFFFFFF;
     uint32_t total = raw & 0x7FFFFFFF;
 
@@ -109,7 +109,7 @@ void emit3(K3* key, V3* value, void* context) {
 }
 
 
-void updateJobState(JobContext* jobContext, Stage stage, uint32_t processed, uint32_t total) {
+void updateJobState(JobContext* jobContext, stage_t stage, uint32_t processed, uint32_t total) {
     jobContext->atomicJobState.store(packState(stage, processed, total));
 }
 
