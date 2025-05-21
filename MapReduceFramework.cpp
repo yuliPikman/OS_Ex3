@@ -11,9 +11,9 @@
 #include <iostream>
 #include <memory>
 
-#define DEBUG_PRINT(x) std::cout << x << std::endl;
+#define DEBUG_PRINT(x) std::cout << x << '\n';
+;
 
-struct ThreadContext;
 
 uint64_t packState(stage_t stage, uint32_t processed, uint32_t total) {
     return ((uint64_t)stage << 62) | ((uint64_t)processed << 31) | total;
@@ -24,35 +24,43 @@ struct JobContext {
     const InputVec& inputVec;
     OutputVec& outputVec;
     int multiThreadLevel;
+
     std::vector<std::thread> threadsVec;
     std::vector<ThreadContext> threadContextsVec;
+
     std::mutex writeToOutputVecMutex;
     std::mutex shuffleMutex;
     std::unique_ptr<Barrier> sortBarrier;
+
     std::atomic<int> mapAtomicIndex;
     std::atomic<int> reduceIndex;
+
     std::atomic<size_t> shuffledPairsCounter;
     std::atomic<size_t> intermediatePairsCounter;
+    std::atomic<uint64_t> atomicJobState;
+    std::atomic<uint32_t> reduceGroupsDone;
+
     std::vector<IntermediateVec> shuffledVectorsQueue;
     bool joined;
-    std::atomic<uint64_t> atomicJobState;
 
     JobContext(const MapReduceClient& client,
                const InputVec& inputVec,
                OutputVec& outputVec,
                int multiThreadLevel)
-            : mapReduceClientRef(client),
-              inputVec(inputVec),
-              outputVec(outputVec),
-              multiThreadLevel(multiThreadLevel),
-              sortBarrier(nullptr),
-              mapAtomicIndex(0),
-              reduceIndex(0),
-              shuffledPairsCounter(0),
-              intermediatePairsCounter(0),
-              joined(false),
-              atomicJobState(packState(UNDEFINED_STAGE, 0, 0)) {}
+        : mapReduceClientRef(client),
+          inputVec(inputVec),
+          outputVec(outputVec),
+          multiThreadLevel(multiThreadLevel),
+          sortBarrier(nullptr),
+          mapAtomicIndex(0),
+          reduceIndex(0),
+          shuffledPairsCounter(0),
+          intermediatePairsCounter(0),
+          atomicJobState(packState(UNDEFINED_STAGE, 0, 0)),
+          reduceGroupsDone(0),
+          joined(false) {}
 };
+
 
 struct ThreadContext {
     int threadID;
@@ -68,6 +76,7 @@ struct ThreadContext {
 };
 
 void getJobState(JobHandle job, JobState* state) {
+    
     if (job == nullptr || state == nullptr) {
         throw std::runtime_error("Invalid argument to getJobState");
     }
@@ -76,11 +85,14 @@ void getJobState(JobHandle job, JobState* state) {
     uint64_t raw = jobContext->atomicJobState.load();
 
     stage_t stage = static_cast<stage_t>(raw >> 62);
+    
     uint32_t processed = (raw >> 31) & 0x7FFFFFFF;
     uint32_t total = raw & 0x7FFFFFFF;
 
     state->stage = stage;
-    state->percentage = (total == 0) ? 0.0f : (float)processed / total;
+    
+    state->percentage = (total == 0) ? 0.0f : (float)processed / total * 100.0f;
+
 }
 
 
@@ -110,12 +122,31 @@ void emit3(K3* key, V3* value, void* context) {
 
 
 void updateJobState(JobContext* jobContext, stage_t stage, uint32_t processed, uint32_t total) {
-    uint64_t packed = packState(stage, processed, total);
-    jobContext->atomicJobState.store(packed);
+    // מניעת חריגה – כדי למנוע percentage > 100
+    if (total > 0 && processed > total) {
+        processed = total;
+    }
 
-    DEBUG_PRINT("[updateJobState] Stage: " << stage << ", Progress: " << processed << "/" << total
-                 << " (" << (total == 0 ? 0.0 : 100.0 * (double)processed / total) << "%)")
+    uint64_t newPacked = packState(stage, processed, total);
+    uint64_t current = jobContext->atomicJobState.load();
+
+    while (true) {
+        stage_t currStage = static_cast<stage_t>(current >> 62);
+        uint32_t currProcessed = (current >> 31) & 0x7FFFFFFF;
+
+        // רק אם השלב החדש גבוה יותר או באותו שלב אך יותר התקדם
+        if (stage < currStage || (stage == currStage && processed <= currProcessed)) {
+            return; // אל תעדכן — מדובר בנסיגה
+        }
+
+        if (jobContext->atomicJobState.compare_exchange_weak(current, newPacked)) {
+            break; // הצלחנו לעדכן
+        }
+        // אחרת current קיבל את הערך העדכני וננסה שוב
+    }
 }
+
+
 
 
 JobHandle startMapReduceJob(const MapReduceClient& client,
@@ -127,6 +158,13 @@ JobHandle startMapReduceJob(const MapReduceClient& client,
     if (inputVec.empty()) {
         throw std::runtime_error("Input vector is empty");
     }
+    if (multiThreadLevel >= 20000000) {
+        std::cout << "system error: too many threads requested\n";
+        std::exit(1);
+    }
+
+    
+
 
     std::unique_ptr<JobContext> jobContext(new JobContext(client, inputVec, outputVec, multiThreadLevel));
 
@@ -140,40 +178,37 @@ JobHandle startMapReduceJob(const MapReduceClient& client,
         }
 
         for (int i = 0; i < multiThreadLevel; ++i) {
-            try {
-                jobContext->threadsVec.emplace_back(workerFunction, &jobContext->threadContextsVec[i]);
-            } catch (...) {
-                for (auto& t : jobContext->threadsVec) {
-                    if (t.joinable()) {
-                        t.join();
-                    }
-                }
-                throw std::runtime_error("Failed to create thread " + std::to_string(i));
-            }
+            jobContext->threadsVec.emplace_back(workerFunction, &jobContext->threadContextsVec[i]);
         }
-    } catch (...) {
-        throw;
+    } catch (const std::system_error& e) {
+        std::cout << "system error: " << e.what() << '\n';
+        std::exit(1);
     }
+
 
     return (JobHandle) jobContext.release();
 }
 
+
 void workerFunction(ThreadContext* threadContext) {
     try {
-        DEBUG_PRINT("Thread " << threadContext->threadID << " started.");
+
         handleMapPhase(threadContext);
         handleSortPhase(threadContext);
+
         handleShufflePhase(threadContext);
+        threadContext->jobContext->sortBarrier->barrier();
+
         handleReducePhase(threadContext);
-        DEBUG_PRINT("Thread " << threadContext->threadID << " finished REDUCE phase.");
+
     }
     catch (const std::exception& e) {
-        DEBUG_PRINT("Thread " << threadContext->threadID << " encountered exception: " << e.what());
     }
     catch (...) {
-        DEBUG_PRINT("Thread " << threadContext->threadID << " encountered unknown exception.");
     }
 }
+
+
 
 
 void handleMapPhase(ThreadContext* threadContext) {
@@ -184,7 +219,6 @@ void handleMapPhase(ThreadContext* threadContext) {
         jobContext->intermediatePairsCounter = 0;
         jobContext->shuffledPairsCounter = 0;
         updateJobState(jobContext, MAP_STAGE, 0, (uint32_t)jobContext->inputVec.size());
-        DEBUG_PRINT("MAP stage started");
     }
 
     size_t index = jobContext->mapAtomicIndex.fetch_add(1);
@@ -198,8 +232,8 @@ void handleMapPhase(ThreadContext* threadContext) {
         updateJobState(jobContext, MAP_STAGE, done, total);
     }
 
-    DEBUG_PRINT("Thread " << threadContext->threadID << " finished MAP phase.");
 }
+
 
 
 void handleSortPhase(ThreadContext* threadContext) {
@@ -208,16 +242,14 @@ void handleSortPhase(ThreadContext* threadContext) {
                   return *(a.first) < *(b.first);
               });
 
-    DEBUG_PRINT("Thread " << threadContext->threadID << " finished SORT phase.");
     threadContext->jobContext->sortBarrier->barrier();
 }
 
+
 void handleShufflePhase(ThreadContext* threadContext) {
     JobContext* jobContext = threadContext->jobContext;
-
     if (threadContext->threadID != 0) return;
 
-    DEBUG_PRINT("SHUFFLE stage started");
     updateJobState(jobContext, SHUFFLE_STAGE, 0, 1);
 
     std::vector<IntermediatePair> allPairs;
@@ -225,9 +257,10 @@ void handleShufflePhase(ThreadContext* threadContext) {
         allPairs.insert(allPairs.end(), ctx.intermediateResults.begin(), ctx.intermediateResults.end());
     }
 
-    std::sort(allPairs.begin(), allPairs.end(), [](const IntermediatePair& a, const IntermediatePair& b) {
-        return *(a.first) < *(b.first);
-    });
+    std::sort(allPairs.begin(), allPairs.end(),
+              [](const IntermediatePair& a, const IntermediatePair& b) {
+                  return *(a.first) < *(b.first);
+              });
 
     size_t total = allPairs.size();
     size_t processed = 0;
@@ -244,36 +277,44 @@ void handleShufflePhase(ThreadContext* threadContext) {
         updateJobState(jobContext, SHUFFLE_STAGE, (uint32_t)processed, (uint32_t)total);
     }
 
-    DEBUG_PRINT("SHUFFLE stage completed");
-    DEBUG_PRINT("Total reduce groups: " << jobContext->shuffledVectorsQueue.size());
-
-    jobContext->sortBarrier->barrier();
 }
+
+
 
 
 void handleReducePhase(ThreadContext* threadContext) {
     JobContext* jobContext = threadContext->jobContext;
 
+    // שלב ראשון: כל ה־threads מחכים לסיום שלב SORT
+    threadContext->jobContext->sortBarrier->barrier();
+
+    // שלב שני: thread 0 מאפס משתנים
     if (threadContext->threadID == 0) {
         jobContext->reduceIndex = 0;
-        DEBUG_PRINT("REDUCE stage started");
+        jobContext->reduceGroupsDone = 0;  // ✅ אפס את המונה
     }
 
-    jobContext->sortBarrier->barrier();
+    // שלב שלישי: כל ה־threads מוודאים שהאיפוס הסתיים
+    threadContext->jobContext->sortBarrier->barrier();
 
-    int i = jobContext->reduceIndex.fetch_add(1);
     uint32_t total = (uint32_t)jobContext->shuffledVectorsQueue.size();
+    int i = jobContext->reduceIndex.fetch_add(1);
+
     while (i < (int)total) {
         jobContext->mapReduceClientRef.reduce(&jobContext->shuffledVectorsQueue[i], threadContext);
 
-         uint32_t done = (uint32_t)(i + 1);
+        uint32_t done = jobContext->reduceGroupsDone.fetch_add(1) + 1;  // ✅ המשתמש הנכון
         updateJobState(jobContext, REDUCE_STAGE, done, total);
 
-        DEBUG_PRINT("Thread " << threadContext->threadID << " reduced group " << i);
 
         i = jobContext->reduceIndex.fetch_add(1);
     }
+
+    // סיום — כל ה־threads מחכים
+    threadContext->jobContext->sortBarrier->barrier();
 }
+
+
 
 
 void closeJobHandle(JobHandle job) {
@@ -283,8 +324,8 @@ void closeJobHandle(JobHandle job) {
     waitForJob(job);
     auto* jobContext = static_cast<JobContext*>(job);
     std::unique_ptr<JobContext> cleanup(jobContext);
-    // sortBarrier will be deleted automatically
 }
+
 
 void waitForJob(JobHandle job) {
     auto* jobContext = static_cast<JobContext*>(job);
