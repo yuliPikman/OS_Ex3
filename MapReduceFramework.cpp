@@ -152,17 +152,13 @@ void updateJobState(JobContext* jobContext, stage_t stage, uint32_t processed, u
 JobHandle startMapReduceJob(const MapReduceClient& client,
                             const InputVec& inputVec, OutputVec& outputVec,
                             int multiThreadLevel) {
-    if (multiThreadLevel <= 0) {
-        throw std::runtime_error("multiThreadLevel must be >= 1");
+    if (multiThreadLevel <= 0 || multiThreadLevel >= 20000000) {
+        std::cout << "system error: invalid number of threads requested\n";
+        std::exit(1);
     }
     if (inputVec.empty()) {
         throw std::runtime_error("Input vector is empty");
     }
-    if (multiThreadLevel >= 20000000) {
-        std::cout << "system error: too many threads requested\n";
-        std::exit(1);
-    }
-
     
 
 
