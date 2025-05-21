@@ -23,6 +23,10 @@ JobHandle startMapReduceJob(const MapReduceClient& client,
 void waitForJob(JobHandle job);
 void getJobState(JobHandle job, JobState* state);
 void closeJobHandle(JobHandle job);
+void handleMapPhase(ThreadContext* threadContext);
+void handleSortPhase(ThreadContext* threadContext);
+void handleShufflePhase(ThreadContext* threadContext);
+void handleReducePhase(ThreadContext* threadContext);
 	
 	
 #endif //MAPREDUCEFRAMEWORK_H
