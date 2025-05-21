@@ -15,6 +15,9 @@
 
 struct ThreadContext;
 
+uint64_t packState(Stage stage, uint32_t processed, uint32_t total) {
+    return ((uint64_t)stage << 62) | ((uint64_t)processed << 31) | total;
+}
 
 struct JobContext {
     const MapReduceClient& mapReduceClientRef;
@@ -65,9 +68,7 @@ struct ThreadContext {
 };
 
 
-uint64_t packState(Stage stage, uint32_t processed, uint32_t total) {
-    return ((uint64_t)stage << 62) | ((uint64_t)processed << 31) | total;
-}
+
 
 void updateJobState(JobContext* jobContext, Stage stage, uint32_t processed, uint32_t total) {
     jobContext->atomicJobState.store(packState(stage, processed, total));
@@ -84,10 +85,10 @@ JobHandle startMapReduceJob(const MapReduceClient& client,
         throw std::runtime_error("Input vector is empty");
     }
 
-    std::unique_ptr<JobContext> jobContext = std::make_unique<JobContext>(client, inputVec, outputVec, multiThreadLevel);
+    std::unique_ptr<JobContext> jobContext(new JobContext(client, inputVec, outputVec, multiThreadLevel));
 
     try {
-        jobContext->sortBarrier = std::make_unique<Barrier>(multiThreadLevel);
+        jobContext->sortBarrier = std::unique_ptr<Barrier>(new Barrier(multiThreadLevel));
         jobContext->threadContextsVec.reserve(multiThreadLevel);
         jobContext->threadsVec.reserve(multiThreadLevel);
 
