@@ -239,15 +239,19 @@ void workerFunction(ThreadContext* threadContext) {
         while (i < (int)total) {
             jobContext->mapReduceClientRef.reduce(&jobContext->shuffledVectorsQueue[i], threadContext);
 
-            // עדכון מדויק יותר של סטטוס לפי מספר שהושלם
-            uint32_t done = (uint32_t)(i + 1);
+            // מגדיל רק אם באמת בוצע emit3 (וזה נכון לפרויקטים שמפיקים זוג אחד לקבוצה)
+            jobContext->shuffledPairsCounter++;  // אופציונלי אם אתה סופר ידנית
+
+            uint32_t done = (uint32_t)jobContext->shuffledPairsCounter.load();
             updateJobState(jobContext, REDUCE_STAGE, done, total);
+
+            DEBUG_PRINT("Thread " << threadContext->threadID << " reduced group " << i)
 
             i = jobContext->reduceIndex.fetch_add(1);
         }
 
-
         DEBUG_PRINT("Thread " << threadContext->threadID << " finished REDUCE phase.")
+
     }
     catch (const std::exception& e) {
         DEBUG_PRINT("Thread " << threadContext->threadID << " encountered exception: " << e.what());
