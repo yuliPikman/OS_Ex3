@@ -13,7 +13,7 @@ public:
 private:
     std::mutex mutex;
     std::condition_variable cv;
-    const int numThreads;  // ✅ אתחול ראשון כי יופיע ראשון ב-initializer list
+    const int numThreads;
     int count;
     int generation;
 };

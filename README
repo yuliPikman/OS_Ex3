@@ -1,0 +1,13 @@
+pikman.yuli, ellorw.nir
+Yuli Pikman (325050235), Nir Ellor Waizner (323816678)
+EX: 3
+
+FILES:
+Barrier.h                 -- A header file for the Barrier synchronization class.
+Barrier.cpp               -- A cpp file of the implementation of the Barrier class, used for thread coordination.
+
+MapReduceFramework.cpp    -- A cpp file of the implementation of the MapReduce framework, including map, shuffle,
+                                reduce, thread context, and synchronization.
+
+Utils.h                   -- a=A header file that contains declarations and definitions of helper functions and
+                                constants

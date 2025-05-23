@@ -1,25 +1,42 @@
-# קומפיילר
+# Compiler
 CXX = g++
-CXXFLAGS = -std=c++11 -O3 -Wall
 
-# קבצי מקור
-SRCS = MapReduceFramework.cpp Barrier.cpp test1-1_thread_1_process.cpp
-OBJS = $(SRCS:.cpp=.o)
+# Source and header files
+CODESRC = Barrier.cpp MapReduceFramework.cpp
+HEADERS = Barrier.h MapReduceClient.h MapReduceFramework.h Utils.h
 
-# קובץ הרצה סופי
-TARGET = mapreduce_test
+# Object files
+OBJS = $(CODESRC:.cpp=.o)
 
-# כלל ברירת מחדל
-all: $(TARGET)
+# Static library name
+LIBRARY = libMapReduceFramework.a
 
-# קישור והרכבה
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+# Include paths and compiler flags
+INCS = -I.
+CXXFLAGS = -Wall -std=c++20 -O3 $(INCS)
 
-# ניקוי קבצים זמניים
+# Tar settings
+TAR = tar
+TARFLAGS = -cvf
+TARNAME = ex3.tar
+TARSRCS = Barrier.cpp MapReduceFramework.cpp Barrier.h Makefile
+
+# Default target
+all: $(LIBRARY)
+
+# Build object file
+%.o: %.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Build static library
+$(LIBRARY): $(OBJS)
+	ar rcs $@ $^
+
+# Clean target
 clean:
-	rm -f $(OBJS) $(TARGET) *~ core
+	rm -f $(LIBRARY) $(OBJS)
 
-# יצירת ארכיון עם כל הדרוש
+# Create tarball
 tar:
-	tar -cvf ex3.tar $(SRCS) Barrier.h MapReduceFramework.h Makefile README
+	$(TAR) $(TARFLAGS) $(TARNAME) $(TARSRCS)
+
